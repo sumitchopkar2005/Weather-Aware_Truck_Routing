@@ -19,14 +19,27 @@ const submitButtonClassName =
 function getDateLimit(days) {
   const date = new Date();
   date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
+  return formatDateOnly(date);
+}
+
+function formatDateOnly(date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function parseDateOnly(value) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
 }
 
 export default function TripForm({ onSubmit, loading }) {
   const [form, setForm] = useState({
     origin: "",
     destination: "",
-    departure_date: new Date().toISOString().slice(0, 10),
+    departure_date: formatDateOnly(new Date()),
     departure_time: "08:00",
     load_weight: "40000",
     checkpoint_interval: "25",
@@ -41,7 +54,7 @@ export default function TripForm({ onSubmit, loading }) {
   const [calendarMonth, setCalendarMonth] = useState(
     new Date(`${form.departure_date}T00:00:00`),
   );
-  const minDate = new Date().toISOString().slice(0, 10);
+  const minDate = formatDateOnly(new Date());
   const maxDate = getDateLimit(7);
 
   useEffect(() => {
@@ -87,7 +100,7 @@ export default function TripForm({ onSubmit, loading }) {
   };
 
   const chooseDate = (date) => {
-    updateField("departure_date", date.toISOString().slice(0, 10));
+    updateField("departure_date", formatDateOnly(date));
     setCalendarOpen(false);
   };
 
@@ -105,17 +118,18 @@ export default function TripForm({ onSubmit, loading }) {
 
   const dateIsSelectable = (date) => {
     if (!date) return false;
-    const value = date.toISOString().slice(0, 10);
+    const value = formatDateOnly(date);
     return value >= minDate && value <= maxDate;
   };
 
-  const selectedDateLabel = new Date(
-    `${form.departure_date}T00:00:00`,
-  ).toLocaleDateString(undefined, {
+  const selectedDateLabel = parseDateOnly(form.departure_date).toLocaleDateString(
+    undefined,
+    {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+    },
+  );
 
   const [selectedHour, selectedMinute] = form.departure_time.split(":").map(Number);
   const selectedPeriod = selectedHour >= 12 ? "PM" : "AM";
@@ -154,7 +168,12 @@ export default function TripForm({ onSubmit, loading }) {
       return;
     }
     if (
-      new Date(`${form.departure_date}T${form.departure_time}`) <= new Date()
+      Date.UTC(
+        ...form.departure_date.split("-").map(Number).map((value, index) =>
+          index === 1 ? value - 1 : value,
+        ),
+        ...form.departure_time.split(":").map(Number),
+      ) <= Date.now()
     ) {
       setError("Departure must be in the future.");
       return;
@@ -276,7 +295,7 @@ export default function TripForm({ onSubmit, loading }) {
                       disabled={!dateIsSelectable(date)}
                       className={
                         date &&
-                        date.toISOString().slice(0, 10) === form.departure_date
+                        formatDateOnly(date) === form.departure_date
                           ? "selected"
                           : ""
                       }

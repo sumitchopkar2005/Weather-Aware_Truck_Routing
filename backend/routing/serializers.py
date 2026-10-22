@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from rest_framework import serializers
 
 class TripRequestSerializer(serializers.Serializer):
@@ -14,7 +14,11 @@ class TripRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Origin and destination must be different locations."
             )
-        departure = datetime.combine(attrs["departure_date"], attrs["departure_time"])
-        if departure < datetime.now().replace(microsecond=0):
+        departure = datetime.combine(
+            attrs["departure_date"],
+            attrs["departure_time"],
+            tzinfo=timezone.utc,
+        )
+        if departure < datetime.now(timezone.utc).replace(microsecond=0):
             raise serializers.ValidationError("Departure must be in the future.")
         return attrs

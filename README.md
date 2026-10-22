@@ -9,6 +9,7 @@ The application:
 - Samples every route at a configurable 10, 25, or 50-mile interval.
 - Estimates the truck's arrival time at every checkpoint.
 - Retrieves weather for each checkpoint at its estimated arrival time.
+- Treats submitted departure times as UTC consistently in the form, API, validation, and forecast matching.
 - Converts provider measurements into the units used by the risk rules.
 - Classifies wind, rain, and snow conditions using the Spotter assessment thresholds.
 - Ranks routes by severe-risk miles, high-risk miles, average risk, and travel time.
@@ -22,7 +23,7 @@ The dashboard contains:
 - Route comparison cards with recommendation status, distance, duration, ETA, coverage, risk miles, and average risk.
 - An interactive Mapbox map with route alternatives, origin/destination markers, checkpoint markers, and route selection.
 - A weather checkpoint table containing temperature, wind, rain, total precipitation, snow, ETA, and risk.
-- A weather-risk corridor heatmap based on real Open-Meteo forecast values sampled along the selected route.
+- A weather-risk corridor layer based on real Open-Meteo forecast values sampled along the selected route.
 - A 0–48-hour forecast slider that updates the displayed corridor forecast.
 - Loading, empty, provider-error, invalid-input, retry, and unavailable-weather states.
 - Responsive layouts for desktop, tablet, and mobile screens.
@@ -55,7 +56,7 @@ The dashboard contains:
 - Mapbox GL JS map tiles
 - Open-Meteo hourly forecast API
 
-Open-Meteo does not require an API key.
+Open-Meteo does not require an API key. Departure times are entered in UTC and are labeled as UTC throughout the interface.
 
 ## Architecture
 
@@ -238,7 +239,7 @@ The heatmap is a risk-score visualization based on real forecast data.
    - `snowfall`
    - `temperature_2m`
    - `wind_speed_10m`
-4. The backend matches each requested forecast hour to the provider timestamp.
+4. The backend matches each requested forecast hour to the nearest provider timestamp.
 5. Rain and total precipitation are converted from millimeters to inches per hour.
 6. Snowfall is converted from centimeters to inches per hour.
 7. The load-sensitive risk engine calculates a score from 1 through 5.
@@ -246,7 +247,7 @@ The heatmap is a risk-score visualization based on real forecast data.
 
 ### Frontend flow
 
-The frontend uses the selected route's corridor samples as GeoJSON points and renders them with a Mapbox heatmap layer. Moving the forecast slider selects the nearest actual provider timestamp and refreshes the heatmap. Selecting another route replaces the corridor source and redraws the layer for that route.
+The frontend uses the selected route's corridor samples as GeoJSON points and renders a route-aligned Mapbox risk corridor layer. Each point's color is selected directly from its risk score; color is not derived from heatmap density. Moving the forecast slider selects the nearest actual provider timestamp and refreshes the corridor. Selecting another route replaces the corridor source and redraws the layer for that route.
 
 Heatmap colors represent:
 
@@ -326,7 +327,7 @@ The application handles:
 - Overlapping frontend requests
 - Stale route responses
 
-Starting a new analysis clears the previous result. Older requests cannot overwrite newer results. Anonymous route analysis is throttled by `ROUTE_ANALYSIS_RATE`, which defaults to `10/min`.
+Starting a new analysis clears the previous result. Older requests cannot overwrite newer results. Anonymous route analysis is throttled by `ROUTE_ANALYSIS_RATE`, which defaults to `10/min`. Checkpoint weather is reused from the batched corridor response whenever the route samples cover the checkpoint. Provider responses are cached with a five-minute freshness window; cache keys include coordinates, requested forecast timestamps, and the current cache window.
 
 Provider logs include operation names, status codes, and elapsed time without logging access tokens.
 
@@ -366,6 +367,8 @@ The test suites cover:
 - Successful and failed route analysis
 - Stale-result state transitions
 - Route recommendation behavior
+- UTC departure validation and forecast matching
+- Corridor weather reuse and provider rate-limit handling
 
 ## Deployment
 

@@ -5,23 +5,6 @@ import { RISK_COLORS } from "../../utils/risk";
 
 const MAP_STYLE = "mapbox://styles/mapbox/light-v11";
 const ROUTE_COLORS = ["#2563eb", "#7c3aed", "#0891b2"];
-const RISK_HEATMAP_COLORS = [
-  "interpolate",
-  ["linear"],
-  ["heatmap-density"],
-  0,
-  "rgba(34, 197, 94, 0)",
-  0.2,
-  "#22c55e",
-  0.45,
-  "#eab308",
-  0.7,
-  "#f97316",
-  0.9,
-  "#ef4444",
-  1,
-  "#450a0a",
-];
 
 function isConfiguredToken(token) {
   return Boolean(token) && !/^(your_|replace_with_)/i.test(token);
@@ -228,31 +211,36 @@ export default function RouteMap({
       });
       map.addLayer({
         id: heatmapLayerId,
-        type: "heatmap",
+        type: "circle",
         source: heatmapSourceId,
-        maxzoom: 12,
         paint: {
-          "heatmap-weight": [
-            "interpolate",
-            ["linear"],
-            ["get", "riskScore"],
-            1,
-            0.15,
-            5,
-            1,
-          ],
-          "heatmap-intensity": 0.9,
-          "heatmap-radius": [
+          "circle-radius": [
             "interpolate",
             ["linear"],
             ["zoom"],
             3,
-            18,
+            7,
             12,
-            32,
+            15,
           ],
-          "heatmap-opacity": 0.72,
-          "heatmap-color": RISK_HEATMAP_COLORS,
+          "circle-color": [
+            "match",
+            ["get", "riskScore"],
+            1,
+            "#22c55e",
+            2,
+            "#eab308",
+            3,
+            "#f97316",
+            4,
+            "#ef4444",
+            5,
+            "#450a0a",
+            "#64748b",
+          ],
+          "circle-opacity": 0.78,
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1,
         },
       });
       layerIdsRef.current.push(heatmapLayerId, heatmapSourceId);

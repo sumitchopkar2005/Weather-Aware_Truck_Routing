@@ -9,7 +9,7 @@ from rest_framework import status
 from rest_framework.throttling import ScopedRateThrottle
 from .serializers import TripRequestSerializer
 from .risk_engine import assess_checkpoint, rank_routes
-from .services.geometry import sample_geometry
+from .services.geometry import haversine_miles, sample_geometry
 from .services.mapbox import MapboxError, directions, geocode
 from .services.open_meteo import (
     WeatherProviderError,
@@ -19,10 +19,66 @@ from .services.open_meteo import (
 
 logger = logging.getLogger(__name__)
 
-def _analyze_checkpoint(point, route_duration, departure, load_weight):
+def _weather_from_corridor(
+    point,
+    arrival,
+    corridor_points,
+    corridor_weather,
+    corridor_times,
+):
+    nearest_index = min(
+        range(len(corridor_points)),
+        key=lambda index: haversine_miles(
+            (point["latitude"], point["longitude"]),
+            (
+                corridor_points[index]["latitude"],
+                corridor_points[index]["longitude"],
+            ),
+        ),
+    )
+    if nearest_index >= len(corridor_weather):
+        raise WeatherProviderError(
+            "Weather provider returned incomplete corridor locations.",
+        )
+    nearest_weather = corridor_weather[nearest_index]["forecast"]
+    if not nearest_weather:
+        raise WeatherProviderError(
+            "Weather provider returned no corridor forecast values.",
+        )
+    forecast_index = min(
+        range(len(corridor_times)),
+        key=lambda index: abs(corridor_times[index] - arrival),
+    )
+    return nearest_weather[forecast_index]
+
+
+def _analyze_checkpoint(
+    point,
+    route_duration,
+    departure,
+    load_weight,
+    corridor_points=None,
+    corridor_weather=None,
+    corridor_times=None,
+):
     arrival = departure + timedelta(seconds=route_duration * point["distance_miles"] / max(point["route_distance"], 1))
     try:
-        weather = fetch_weather(point["latitude"], point["longitude"], arrival)
+        if (
+            corridor_points is not None
+            and corridor_weather is not None
+            and corridor_points
+            and corridor_weather
+            and corridor_times is not None
+        ):
+            weather = _weather_from_corridor(
+                point,
+                arrival,
+                corridor_points,
+                corridor_weather,
+                corridor_times,
+            )
+        else:
+            weather = fetch_weather(point["latitude"], point["longitude"], arrival)
         assessment = assess_checkpoint(weather["wind_mph"], weather["rain_in_per_hour"], weather["snow_in_per_hour"], load_weight)
     except WeatherProviderError as exc:
         weather = {
@@ -43,8 +99,6 @@ def _route_result(route, index, interval, departure, load_weight):
     points = sample_geometry(route["geometry"]["coordinates"], interval)
     for point in points:
         point["route_distance"] = distance_miles
-    with ThreadPoolExecutor(max_workers=min(8, max(1, len(points)))) as executor:
-        checkpoints = list(executor.map(lambda p: _analyze_checkpoint(p, route["duration"], departure, load_weight), points))
     corridor_points = sample_geometry(
         route["geometry"]["coordinates"],
         min(interval, 25),
@@ -82,6 +136,21 @@ def _route_result(route, index, interval, departure, load_weight):
             }
             for point in corridor_points
         ]
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(points)))) as executor:
+        checkpoints = list(
+            executor.map(
+                lambda p: _analyze_checkpoint(
+                    p,
+                    route["duration"],
+                    departure,
+                    load_weight,
+                    corridor_points,
+                    corridor_weather,
+                    corridor_times,
+                ),
+                points,
+            )
+        )
     heatmap_samples = []
     for point, weather_point in zip(corridor_points, corridor_weather):
         forecasts = []

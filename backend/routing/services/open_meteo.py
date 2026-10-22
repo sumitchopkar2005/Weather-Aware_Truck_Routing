@@ -1,4 +1,5 @@
 import logging
+import time
 from time import perf_counter
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 MM_TO_INCH = 1 / 25.4
 CM_TO_INCH = 1 / 2.54
+CACHE_TTL_SECONDS = 300
 
 
 class WeatherProviderError(Exception):
@@ -98,8 +100,12 @@ def _request_params(latitudes, longitudes):
     }
 
 
+def _cache_bucket():
+    return int(time.time() // CACHE_TTL_SECONDS)
+
+
 @lru_cache(maxsize=512)
-def fetch_weather(latitude, longitude, arrival):
+def _fetch_weather_cached(latitude, longitude, arrival, cache_bucket):
     url = "https://api.open-meteo.com/v1/forecast"
     params = {
         "latitude": latitude,
@@ -120,6 +126,10 @@ def fetch_weather(latitude, longitude, arrival):
     started_at = perf_counter()
     try:
         response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 429:
+            raise WeatherProviderError(
+                "Weather provider rate limit reached. Try again shortly.",
+            )
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:
@@ -161,8 +171,20 @@ def fetch_weather(latitude, longitude, arrival):
     return weather
 
 
+def fetch_weather(latitude, longitude, arrival):
+    return _fetch_weather_cached(
+        latitude,
+        longitude,
+        arrival,
+        _cache_bucket(),
+    )
+
+
+fetch_weather.cache_clear = _fetch_weather_cached.cache_clear
+
+
 @lru_cache(maxsize=64)
-def fetch_corridor_weather(coordinates, forecast_times):
+def _fetch_corridor_weather_cached(coordinates, forecast_times, cache_bucket):
     """Fetch hourly weather for route samples in one multi-coordinate request."""
     if not coordinates or not forecast_times:
         return []
@@ -175,6 +197,10 @@ def fetch_corridor_weather(coordinates, forecast_times):
             params=_request_params(latitudes, longitudes),
             timeout=15,
         )
+        if response.status_code == 429:
+            raise WeatherProviderError(
+                "Weather provider rate limit reached. Try again shortly.",
+            )
         response.raise_for_status()
         payload = response.json()
     except requests.RequestException as exc:
@@ -218,3 +244,14 @@ def fetch_corridor_weather(coordinates, forecast_times):
             }
         )
     return results
+
+
+def fetch_corridor_weather(coordinates, forecast_times):
+    return _fetch_corridor_weather_cached(
+        coordinates,
+        forecast_times,
+        _cache_bucket(),
+    )
+
+
+fetch_corridor_weather.cache_clear = _fetch_corridor_weather_cached.cache_clear
